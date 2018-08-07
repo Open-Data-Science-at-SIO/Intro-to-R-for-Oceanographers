@@ -1,0 +1,238 @@
+---
+title: "Intro to R: Week 9"
+output: 
+  pdf_document:
+    highlight: tango
+
+---
+```{r Setup, echo=FALSE}
+knitr::opts_chunk$set(echo=TRUE, results="hide", message=FALSE, warning=FALSE)
+```
+
+#Topics Covered: Oce package and bathymetry data
+
+This week, we will explore some functions of the `Oce` package. This package was created by a physical oceanographer, Dr. Dan Kelley, and is designed for oceanography applications. In order to complete the exercises, you will need to install the following packages:
+```{r Step1.0}
+require("lubridate")
+require("oce")
+require("ocedata")
+require("ggplot2")
+
+require("rgdal")
+require("raster")
+require("grid")
+```
+
+**Task 1: Sun angle**\
+This example was based on a code created by Dan Kelley, available at http://dankelley.github.io/r/2014/03/22/sun-moon.html.
+
+*Step 1.1* Run the code below to generate a plot of the sun angle in Halifax, NS today.
+
+```{r Step1.1, echo=TRUE, eval=FALSE}
+angles <- function(day=Sys.Date(), lon=-63.61, lat=44.67, tz="America/Halifax", sun=TRUE)
+{
+  tUTC <- t <- seq(as.POSIXct(paste(day, "00:00:00"), tz=tz), length.out=240, by="6 min")
+  attributes(tUTC)$tzone <- "UTC"
+  a <- if (sun) sunAngle(tUTC, lon=lon, lat=lat) else moonAngle(tUTC, lon=lon, lat=lat)
+  invisible <- a$altitude < 0
+  a$altitude[invisible] <- NA
+  a$azimuth[invisible] <- NA
+  list(t=t, altitude=a$altitude, azimuth=a$azimuth)
+}
+
+day <- Sys.Date()
+tz <- "America/Halifax"
+s <- angles()
+m <- angles(sun=FALSE)
+max <- 1.04 * max(c(s$altitude, m$altitude), na.rm=TRUE)
+
+par(mar=rep(0.5, 4))
+theta <- seq(0, 2*pi, length.out=24 * 10)
+radiusx <- cos(theta)
+radiusy <- sin(theta)
+
+# Horizon and labels+lines for EW and NS
+plot(radiusx, radiusy, type='l', col='gray', asp=1, axes=FALSE, xlab="", ylab="")
+lines(c(-1, 1), c(0, 0), col='gray')
+lines(c(0, 0), c(-1, 1), col='gray')
+D <- 1.06
+text( 0, -D, "S", xpd=TRUE) # xpd so can go in margin
+text(-D,  0, "W", xpd=TRUE)
+text( 0,  D, "N", xpd=TRUE)
+text( D,  0, "E", xpd=TRUE)
+
+## Moon
+mx <- (90 - m$altitude) / 90 * cos(pi / 180 * (90 - m$azimuth))
+my <- (90 - m$altitude) / 90 * sin(pi / 180 * (90 - m$azimuth))
+lines(mx, my, col='blue', lwd=3)
+t <- s$t
+mlt <- as.POSIXct(sprintf("%s %02d:00:00", day, 1:24), tz=tz)
+ti <- unlist(lapply(mlt, function(X) which.min(abs(X-t))))
+points(mx[ti], my[ti], pch=20, cex=3, col='white')
+text(mx[ti], my[ti], 1:24, cex=3/4)
+
+## Sun
+sx <- (90 - s$altitude) / 90 *  cos(pi / 180 * (90 - s$azimuth))
+sy <- (90 - s$altitude) / 90 *  sin(pi / 180 * (90 - s$azimuth))
+lines(sx, sy, col='red', lwd=3)
+slt <- as.POSIXct(sprintf("%s %02d:00:00", day, 1:24), tz=tz)
+si <- unlist(lapply(slt, function(X) which.min(abs(X-t))))
+points(sx[ti], sy[ti], pch=20, cex=3, col='white')
+text(sx[ti], sy[ti], 1:24, cex=3/4)
+
+mtext(paste("Halifax NS", day, sep='\n'), side=3, adj=0, line=-2)
+mtext("Sun angle", side=3, adj=1, line=-2)
+```
+
+*Step 1.2* Modify the code above to plot the sun angle today in San Diego, CA. Remember the function `OlsonNames()` and that San Diego has coordinates 32.72$^\circ$ N and 117.16$^\circ$ W. You can look up the sun's zenith on your plot and compare it to the one at the following website (http://www.timeanddate.com/astronomy/usa/san-diego).
+
+```{r Step1.2, eval=FALSE}
+
+# Change the following lines:
+angles <- function(day=Sys.Date(), lon=-63.61, lat=44.67, tz="America/Halifax", sun=TRUE)
+  
+tz <- "America/Halifax"
+
+mtext(paste("Halifax NS", day, sep='\n'), side=3, adj=0, line=-2)
+
+# to:
+angles <- function(day=Sys.Date(), lon=-117.16, lat=32.72, tz="US/Pacific-New", sun=TRUE)
+
+tz <- "US/Pacific-New"
+
+mtext(paste("San Diego, CA", day, sep='\n'), side=3, adj=0, line=-2)
+  
+```
+
+*Step 1.3* Modify the code above to plot the sun angle on December 12, 2014 in San Diego, CA. 
+
+```{r Step1.3}
+
+# Change the following lines:
+day <- Sys.Date()
+
+# to:
+day <- ymd("2014-12-12")
+  
+```
+
+*Step 1.4* Pretend you are planning a field trip in July to monitor spawning in Little Cayman (19.68 $^\circ$ N, 80.05 $^\circ$ W). You know that the moon plays an important role in this process. Create a data frame with hourly values of the illuminated fraction of the moon for the entire month of July 2015. To make your life easier for sampling and data processing, create a column with time in UTC and another one with local time (the Cayman Islands use Eastern Standard Time year round).
+
+```{r Step1.4}
+time.local <- seq(ymd_hms("2015-07-01 00:00:00", tz = "EST"), 
+                  ymd_hms("2015-08-01 00:00:00", tz = "EST"), by="hour")
+
+time.UTC <- with_tz(time.local, tzone = "UTC")
+
+mAngle <- moonAngle(time.UTC, longitude = -80.05, latitude = 19.68)
+
+df = data.frame(time.local, time.UTC, mAngle$illuminatedFraction)
+
+```
+
+*Step 1.5* Use `ggplot()` to plot the illuminated fraction of the moon for the month of July 2015, using Little Cayman local time.
+
+```{r Step1.5, eval=FALSE}
+
+ggplot(df, aes(time.local, mAngle$illuminatedFraction))+
+  geom_point(color="black")+
+  xlab("Local time")+
+  ylab("Illuminated fraction of the moon")+
+  theme_bw()
+
+```
+
+-----
+
+**Task 2: Quick functions**\
+
+Now, we will quickly explore some functions of the `Oce` package that could be useful to you.
+
+*Step 2.1* Use the `Oce` package to calculate the Coriolis parameter at 45$^\circ$ N.
+
+```{r Step2.1}
+coriolis(45)
+```
+
+*Step 2.2* Create the data below and use the function `binAverage()` in the `Oce` package to calculate an average value for each 5 meters. Plot the original data in grey, and the averages in red. Note: ggplot() did not work for me, but maybe it will for you.
+
+```{r Step2.21, echo=TRUE}
+# Data
+z <- seq(1, 100)  # depth, in [m]
+y <- 5 + 2*z
+
+```
+
+```{r Step2.2, eval=FALSE}
+# Using binAverage
+ba <- binAverage(z, y, 0, 100, 5)
+
+# Creating the plot (ggplot was not working for me)
+plot(y, -z, ylab = "Depth [m]", xlab = "Value", col="grey")
+  points(ba$y, -ba$x, col = "red")
+```
+
+*Step 2.3* The `Oce` package has functions that allows you to look at certain data format quickly. After calling current meter data, use `plot(cm)` to look at it. How do you find information on this function?
+
+```{r Step2.31, echo=TRUE, eval=FALSE}
+# Data
+data(cm)
+
+# Quick look at the data
+summary(cm)
+plot(cm)
+```
+
+```{r Step2.3, eval=FALSE}
+# To obtain information on the function
+?plot(cm)
+
+# What is the difference with 
+?plot()
+```
+
+*Step 2.4* Use `data(ctd)` to obtain sample ctd data and plot it on a TS diagram. Change the color of the isopycnals to purple.
+
+```{r Step2.4, eval=FALSE}
+# Data
+data(ctd)
+
+plotTS(ctd, col.rho = "purple")
+```
+
+-----
+
+**Task 3: Working with bathymetry data**\
+
+*Step 3.1* Import the central California bathymetry data from 
+20050622cacentral3sec.asc and the harbor porpoise sighting information from 
+PpSightings.RData.  Use the bathymetry data to determine the water depth of each
+harbor porpoise sighting, then plot a histogram of harbor porpoise sighting depths.
+
+```{r Step3.1, eval=FALSE}
+
+setwd("~/Desktop/IntroR/Week 9/")
+
+require(rgdal)
+require(raster)
+require(grid)
+
+cc.bathy <- readGDAL("20050622cacentral3sec.asc")
+load("PpSightings.RData")
+
+cc.raster <- raster(cc.bathy, layer=1, values=TRUE)
+
+PpSightings$Depth <- extract(cc.raster, 
+                             data.frame("x"=PpSightings$Lon, "y"=PpSightings$Lat))
+```
+
+```{r, eval=FALSE}
+
+ggplot(PpSightings, aes(Depth))+
+  geom_bar(binwidth=10)+
+  ggtitle("Harbor Porpoise Sighting Depths")+
+  ylab("Count")+
+  scale_x_reverse()+
+  theme_bw()
+
+```
